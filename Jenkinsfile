@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    environment {
+        APP_SERVER = "ec2-user@10.0.2.161"
+        SSH_KEY = "/var/lib/jenkins/.ssh/jenkins_to_app"
+    }
+
     stages {
         stage('Pull Latest Source Code') {
             steps {
@@ -9,31 +14,38 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Copy Files to App Server') {
             steps {
-                echo 'Building Docker image...'
-                sh 'docker build -t mywebsite .'
+                echo 'Copying source code to App Server...'
+                sh "scp -i ${SSH_KEY} -o StrictHostKeyChecking=no -r ./* ${APP_SERVER}:/website/"
             }
         }
 
-        stage('Stop Existing Container') {
+        stage('Stop Existing Docker Container') {
             steps {
-                echo 'Stopping existing container if running...'
-                sh 'docker stop mywebsite-container || true'
+                echo 'Stopping existing container on App Server...'
+                sh "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${APP_SERVER} 'docker stop mywebsite-container || true'"
             }
         }
 
-        stage('Remove Existing Container') {
+        stage('Remove Existing Docker Container') {
             steps {
-                echo 'Removing existing container if present...'
-                sh 'docker rm mywebsite-container || true'
+                echo 'Removing existing container on App Server...'
+                sh "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${APP_SERVER} 'docker rm mywebsite-container || true'"
             }
         }
 
-        stage('Run New Container') {
+        stage('Build Latest Docker Image') {
             steps {
-                echo 'Running new container...'
-                sh 'docker run -d -p 80:80 --name mywebsite-container mywebsite'
+                echo 'Building Docker image on App Server...'
+                sh "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${APP_SERVER} 'cd /website && docker build -t mywebsite .'"
+            }
+        }
+
+        stage('Run New Docker Container') {
+            steps {
+                echo 'Running new container on App Server with EFS mounted inside...'
+                sh "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${APP_SERVER} 'docker run -d -p 80:80 -v /website:/usr/share/nginx/html --name mywebsite-container mywebsite'"
             }
         }
     }
